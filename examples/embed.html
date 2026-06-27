@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sites.Reviews widget — embed example (Beta)</title>
+
+  <!--
+    BETA — rollout in progress.
+    This snippet requires the Sites.Reviews beta backend to be enabled for `data-site`.
+    Until it is, <sr-reviews> renders nothing (no error, just empty).
+    The embed attribute names and the loader URL may change before GA.
+    See ../docs/widget.md for the full guide.
+  -->
+
+  <!-- Load the widget runtime once per page -->
+  <script src="https://sites.reviews/widget/embed.js" async></script>
+</head>
+<body>
+  <h1>Acme Widget 42</h1>
+  <p>Product description goes here…</p>
+
+  <!-- Page-level star reviews for a specific subject -->
+  <sr-reviews
+    data-site="example.com"
+    data-subject="/products/widget-42"
+    data-mode="reviews"
+    data-theme="auto"
+    data-lang="en">
+  </sr-reviews>
+
+  <hr />
+
+  <h2>Discussion</h2>
+
+  <!-- Threaded comments mode (no star ratings) for the same subject -->
+  <sr-reviews
+    data-site="example.com"
+    data-subject="/products/widget-42"
+    data-mode="comments"
+    data-theme="auto"
+    data-lang="en">
+  </sr-reviews>
+</body>
+</html>
