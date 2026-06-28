@@ -2,113 +2,161 @@
 
 # Sites.Reviews — API &amp; Widgets
 
-**Programmatic access to Sites.Reviews trust data, plus the embeddable reviews widget.**
+**Free, public, read-only JSON API for trust scores, business profiles and reviews from [sites.reviews](https://sites.reviews). Plus the embeddable reviews widget.**
 
+[![API: Live](https://img.shields.io/badge/API-Live-brightgreen.svg)](https://sites.reviews/api/public/v1/check?domain=1ps.ru)
+[![OpenAPI 3.1](https://img.shields.io/badge/OpenAPI-3.1-6BA539.svg)](./openapi.yaml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![Status: Beta](https://img.shields.io/badge/Status-Beta-orange.svg)](#-on-the-roadmap)
-[![Data: schema.org JSON-LD](https://img.shields.io/badge/Data-schema.org%20JSON--LD-blue.svg)](./docs/structured-data.md)
+[![No auth](https://img.shields.io/badge/Auth-none-blue.svg)](#authentication-cors--rate-limits)
 
 </div>
 
 ---
 
-> **Honesty note.** This repo documents what is *actually* available today. There is currently **no public JSON REST API** on `sites.reviews` — the `/api/*` paths return 404 and the Telegram-facing API is auth-gated. The supported, public way to read review data right now is the **schema.org structured data (JSON-LD)** embedded in every business page. A planned REST API is sketched in [the roadmap](#-on-the-roadmap) and clearly marked *not live*.
+## What is this?
 
-## TL;DR
+The **Sites.Reviews Public API** lets any app, script or AI assistant read trust data from
+[sites.reviews](https://sites.reviews) — a directory of businesses with crowd-sourced reviews
+and a 0–10 **trust score** for each domain.
 
-| Capability | Status | How |
-| --- | --- | --- |
-| Read a business's rating + reviews | ✅ **Available today** | Parse the JSON-LD on `/businesses/{domain}` ([guide](./docs/structured-data.md)) |
-| Programmatic access for AI assistants | ✅ **Available today** | [MCP server](https://github.com/SitesReviewsTrust/sites-reviews-mcp) (wraps the same JSON-LD) |
-| Embeddable reviews/comments widget | 🟠 **Beta / rollout in progress** | `<script>` loader + `<sr-reviews>` web component ([guide](./docs/widget.md)) |
-| Public JSON REST API | 🗺️ **Planned, not live** | Intended shape in [the roadmap](./docs/roadmap.md) |
+It's **live**, **free**, **read-only** and needs **no API key**. Point it at any domain and you
+get back the trust score, an AI-written summary, and the underlying reviews.
+
+- **Base URL:** `https://sites.reviews/api/public/v1`
+- **Auth:** none · **Methods:** `GET` · **Format:** UTF-8 JSON · **CORS:** `*`
+- **Rate limit:** 60 requests / minute / IP · **Cache:** `public, max-age=300`
+- **Spec:** [`openapi.yaml`](./openapi.yaml) (OpenAPI 3.1, validated) · **Reference:** [`docs/api-reference.md`](./docs/api-reference.md)
+
+> `{domain}` is always the business website host, **lowercased**, with no scheme or path —
+> e.g. `1ps.ru`, `ozon.ru`. `trust_score` is the 0–5 `avg_ratings` rescaled to **0–10**
+> (`avg_ratings * 2`).
 
 ---
 
-## ✅ What's available today
+## Quickstart
 
-### Read data via structured data (JSON-LD)
+Check the trust score for `1ps.ru` in your language of choice. No key, no signup.
 
-Every business page at `https://sites.reviews/businesses/{domain}` embeds schema.org
-JSON-LD. `{domain}` is the website host, lowercased (e.g. `1ps.ru`). The block you
-want is the `Organization` node that contains an `aggregateRating` and a `review` array.
-
-**Quick check with curl:**
+### curl
 
 ```bash
-curl -s -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36" \
-  https://sites.reviews/businesses/1ps.ru \
-  | grep -o '"ratingValue":"[0-9.]*"' | head -1
+curl -s "https://sites.reviews/api/public/v1/check?domain=1ps.ru"
 ```
 
-**Minimal Node/JS reader** (Node 18+, no dependencies — uses the built-in `fetch`):
+```json
+{
+  "id": 1841,
+  "name": "Продвижение сайтов от 1PS.RU",
+  "slug": "1ps.ru",
+  "website": "https://1ps.ru",
+  "trust_score": 9.6,
+  "avg_ratings": 4.8,
+  "total_reviews": 34,
+  "is_verified": false,
+  "url": "https://sites.reviews/businesses/1ps.ru",
+  "logo": null
+}
+```
+
+### JavaScript (fetch)
+
+Works in the browser (CORS is open) and in Node 18+.
 
 ```js
-const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
-           '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+const BASE = 'https://sites.reviews/api/public/v1';
 
-async function getBusiness(domain) {
-  const url = `https://sites.reviews/businesses/${domain.toLowerCase()}`;
-  const html = await (await fetch(url, { headers: { 'User-Agent': UA } })).text();
-
-  const blocks = [...html.matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)]
-    .map((m) => { try { return JSON.parse(m[1]); } catch { return null; } })
-    .filter(Boolean);
-
-  // The right Organization node is the one carrying an aggregateRating.
-  const biz = blocks.find((b) => b && b.aggregateRating);
-  if (!biz) throw new Error('No rating data found');
-
-  return {
-    name: biz.name,
-    rating: Number(biz.aggregateRating.ratingValue),
-    reviewCount: biz.aggregateRating.reviewCount,
-    reviews: (biz.review || []).map((r) => ({
-      author: r.author?.name,
-      rating: Number(r.reviewRating?.ratingValue),
-      date: r.datePublished,
-      title: r.name,
-      body: r.reviewBody,
-    })),
-  };
+async function checkDomain(domain) {
+  const res = await fetch(`${BASE}/check?domain=${encodeURIComponent(domain)}`);
+  const data = await res.json();
+  if (data.found === false) return `${domain} is not indexed yet — submit: ${data.submit_url}`;
+  return `${data.name}: trust ${data.trust_score}/10 from ${data.total_reviews} reviews`;
 }
 
-getBusiness('1ps.ru').then((b) => console.log(b.rating, b.reviewCount)); // → 4.8 34
+checkDomain('1ps.ru').then(console.log);
+// → Продвижение сайтов от 1PS.RU: trust 9.6/10 from 34 reviews
 ```
 
-A full, runnable version lives at [`examples/read-business.mjs`](./examples/read-business.mjs):
+### Python (requests)
 
-```text
-$ node examples/read-business.mjs 1ps.ru
-Business : Продвижение сайтов от 1PS.RU
-URL      : https://sites.reviews/businesses/1ps.ru
-Rating   : 4.8 / 5
-Reviews  : 34
+```python
+import requests
+
+BASE = "https://sites.reviews/api/public/v1"
+
+def check_domain(domain: str) -> str:
+    data = requests.get(f"{BASE}/check", params={"domain": domain}, timeout=15).json()
+    if data.get("found") is False:
+        return f"{domain} is not indexed yet — submit: {data['submit_url']}"
+    return f"{data['name']}: trust {data['trust_score']}/10 from {data['total_reviews']} reviews"
+
+print(check_domain("1ps.ru"))
+# → Продвижение сайтов от 1PS.RU: trust 9.6/10 from 34 reviews
 ```
 
-📖 Full field contract: [`docs/structured-data.md`](./docs/structured-data.md)
-
-### Easiest programmatic access: the MCP server
-
-If you're building on an AI assistant (Claude, etc.), the **[Sites.Reviews MCP server](https://github.com/SitesReviewsTrust/sites-reviews-mcp)**
-is the simplest path — it exposes the trust data as MCP tools and reads the same
-JSON-LD documented here, so you don't have to parse HTML yourself.
+> **Tip:** if you call the API from a server-side script, send a regular browser `User-Agent`
+> header. Some bare client UAs (e.g. `python-urllib`) are challenged at the edge.
+> The runnable [`examples/`](./examples) already do this.
 
 ---
 
-## 🟠 Beta: the embeddable reviews widget
+## Endpoints
 
-> **Beta — rollout in progress. The embed contract below may change.** The widget
-> requires the Sites.Reviews beta backend to be enabled for your site; if it isn't,
-> the component renders nothing. Do not treat this as GA yet.
+| Method &amp; path | Purpose | Not-found behaviour |
+| --- | --- | --- |
+| `GET /check?domain={domain}` | Trust score + summary for a domain | **200** with `{ "found": false, … }` |
+| `GET /business/{domain}` | Full profile (descriptions, AI summary, category) | **404** `{ "error": "not_found" }` |
+| `GET /reviews/{domain}?page=&per_page=` | Paginated reviews (`per_page` ≤ 50) | **404** `{ "error": "not_found" }` |
+| `GET /search?q={q}&limit=` | Search catalog by name/domain (`q` ≥ 3 chars, `limit` ≤ 50) | **200** with empty `results` |
 
-Drop a loader script and a web component into any page:
+Full request/response details, every field and error code: **[`docs/api-reference.md`](./docs/api-reference.md)**.
+Machine-readable contract: **[`openapi.yaml`](./openapi.yaml)**.
+
+### Runnable examples
+
+Each takes a domain argument, calls the live API and prints the trust score + top reviews:
+
+```bash
+./examples/check.sh 1ps.ru       # curl + python3
+node examples/check.mjs 1ps.ru   # Node 18+, no dependencies
+python3 examples/check.py 1ps.ru # Python 3, standard library only
+```
+
+---
+
+## Authentication, CORS &amp; rate limits
+
+- **Authentication:** none. Every endpoint is public and read-only. There are no keys, tokens
+  or signup.
+- **CORS:** all responses send `Access-Control-Allow-Origin: *` (methods `GET, OPTIONS`), so
+  you can call the API directly from front-end JavaScript.
+- **Rate limit:** **60 requests per minute per IP.** Responses carry `X-RateLimit-Limit` and
+  `X-RateLimit-Remaining`; exceeding the limit returns **HTTP 429**.
+- **Caching:** successful `200` responses are sent with `Cache-Control: public, max-age=300`
+  (5 minutes). Cache aggressively — it keeps you well under the rate limit.
+
+Details and best practices: **[`docs/rate-limits.md`](./docs/rate-limits.md)**.
+
+---
+
+## 🧠 Use it from an AI assistant → MCP server
+
+Building on Claude or another assistant? The **[Sites.Reviews MCP server](https://github.com/SitesReviewsTrust/sites-reviews-mcp)**
+wraps this API as ready-made [Model Context Protocol](https://modelcontextprotocol.io) tools —
+your assistant can check a domain's trust score or pull its reviews without you writing any
+HTTP code. It's the fastest path to "is this site legit?" inside an agent.
+
+---
+
+## 🧩 Embeddable reviews widget (Beta)
+
+Host page-level reviews and threaded comments on your own site with a `<script>` loader and a
+`<sr-reviews>` web component:
 
 ```html
-<!-- 1. Load the widget runtime once (anywhere on the page) -->
+<!-- 1) Load the widget runtime once per page -->
 <script src="https://sites.reviews/widget/embed.js" async></script>
 
-<!-- 2. Place the component where reviews should appear -->
+<!-- 2) Drop the component wherever reviews should render -->
 <sr-reviews
   data-site="example.com"
   data-subject="/products/widget-42"
@@ -118,46 +166,52 @@ Drop a loader script and a web component into any page:
 </sr-reviews>
 ```
 
-The widget uses **SEO-friendly dual-render** (server-rendered content for crawlers,
-hydrated for users) and supports both page-level **reviews** and threaded **comments**.
+> **🟠 Beta — the widget backend is still rolling out.** The embed contract may change, and the
+> component requires the Sites.Reviews beta backend to be enabled for your `data-site`; until
+> then it renders nothing. The **read API above is live/GA**; only the widget is in beta.
 
-**Options**
-
-| Attribute | Required | Values | Default | Description |
-| --- | --- | --- | --- | --- |
-| `data-site` | ✅ | domain (host) | — | The site the widget belongs to. |
-| `data-subject` | — | any string / path / id | page URL path | The thing being reviewed (product, article, page). Group reviews by this key. |
-| `data-mode` | — | `reviews` \| `comments` | `reviews` | Star reviews vs. threaded comments. |
-| `data-theme` | — | `light` \| `dark` \| `auto` | `auto` | Color theme; `auto` follows the OS preference. |
-| `data-lang` | — | `en` \| `ru` \| … | site default | UI language (ISO 639-1). |
-
-📖 Full guide: [`docs/widget.md`](./docs/widget.md) · live snippet: [`examples/embed.html`](./examples/embed.html)
+Full guide: **[`docs/widget.md`](./docs/widget.md)** · copy-paste starter: [`examples/embed.html`](./examples/embed.html).
 
 ---
 
-## 🗺️ On the roadmap
+## Structured data (JSON-LD) alternative
 
-> **Planned — not live.** None of the endpoints below exist yet; `/api/*` returns 404 today.
+Every business page at `https://sites.reviews/businesses/{domain}` also embeds schema.org
+JSON-LD (`Organization` + `aggregateRating` + `review[]`). The JSON API above is the
+recommended path, but the JSON-LD is handy if you're already scraping pages for SEO data.
+See **[`docs/structured-data.md`](./docs/structured-data.md)** and [`examples/read-business.mjs`](./examples/read-business.mjs).
 
-A public JSON REST API is planned so you won't have to parse JSON-LD. Intended shape:
+---
 
-```http
-GET /api/public/v1/business/{domain}
+## Repository layout
+
+```
+.
+├── openapi.yaml              # OpenAPI 3.1 contract for the live API (validated)
+├── README.md
+├── CHANGELOG.md
+├── docs/
+│   ├── api-reference.md      # Per-endpoint reference with examples
+│   ├── rate-limits.md        # Limits, headers, caching, backoff
+│   ├── widget.md             # Embeddable widget (Beta)
+│   ├── structured-data.md    # JSON-LD alternative
+│   └── roadmap.md            # What's live + what's next
+├── examples/
+│   ├── check.sh              # curl + python3
+│   ├── check.mjs             # Node 18+, no deps
+│   ├── check.py              # Python 3 stdlib
+│   ├── read-business.mjs     # JSON-LD reader
+│   └── embed.html            # Widget embed (Beta)
+└── .github/                  # CI, issue/PR templates
 ```
 
-```jsonc
-{
-  "domain": "1ps.ru",
-  "name": "Продвижение сайтов от 1PS.RU",
-  "rating": 4.8,
-  "reviewCount": 34,
-  "reviews": [
-    { "author": "…", "rating": 5, "date": "2026-05-31", "title": "…", "body": "…" }
-  ]
-}
-```
+---
 
-Full sketch + OpenAPI draft: [`docs/roadmap.md`](./docs/roadmap.md).
+## Contributing &amp; support
+
+- 🐛 Found a bug or wrong field? Open an [issue](https://github.com/SitesReviewsTrust/sites-reviews-api/issues).
+- 🤝 Want to contribute? See [`CONTRIBUTING.md`](./CONTRIBUTING.md) and our [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md).
+- 🔒 Security issue? Please follow [`SECURITY.md`](./SECURITY.md) (private vulnerability reporting).
 
 ---
 

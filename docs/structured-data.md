@@ -1,8 +1,10 @@
 # Reading data via structured data (JSON-LD)
 
-> **This is the supported way to read Sites.Reviews data today.** There is no public
-> JSON REST API yet (`/api/*` → 404). Every business page embeds schema.org JSON-LD,
-> and that is what both this guide and the [MCP server](https://github.com/SitesReviewsTrust/sites-reviews-mcp) consume.
+> **Prefer the [JSON API](./api-reference.md) for new integrations.** The public REST API at
+> `https://sites.reviews/api/public/v1` is live and returns clean JSON. This JSON-LD guide
+> remains useful if you're already scraping pages for SEO data, or want the schema.org markup
+> itself. Every business page embeds JSON-LD, and the
+> [MCP server](https://github.com/SitesReviewsTrust/sites-reviews-mcp) can read either source.
 
 ## Where the data lives
 
@@ -97,8 +99,9 @@ The business `Organization` node has this shape (fields present as of 2026-06):
 | `review[].positiveNotes.itemListElement[]` | array | Extracted positive highlights, each `{ position, name }`. |
 
 > **Caveat:** `review[]` is a recent sample for SEO, not the complete review set. Use
-> `aggregateRating.reviewCount` as the authoritative count. The full list is not exposed
-> via JSON-LD today — it will be when the [REST API](./roadmap.md) ships.
+> `aggregateRating.reviewCount` as the authoritative count. To page through **all** reviews,
+> use the live [`GET /reviews/{domain}`](./api-reference.md#get-reviewsdomain) endpoint, which
+> the JSON-LD sample does not expose.
 
 ## Parsing recipe
 
@@ -117,5 +120,5 @@ A complete, tested implementation is in [`examples/read-business.mjs`](../exampl
 - **Subdomains / `www`** → use the exact host shown on the business's Sites.Reviews
   page; `www.` and the bare host can be distinct entries.
 - **Rate limiting** → this is HTML scraping of a public page; be polite (cache, avoid
-  hammering). For higher-volume or structured access, prefer the
-  [MCP server](https://github.com/SitesReviewsTrust/sites-reviews-mcp) or wait for the REST API.
+  hammering). For structured access, prefer the live [JSON API](./api-reference.md) or the
+  [MCP server](https://github.com/SitesReviewsTrust/sites-reviews-mcp).

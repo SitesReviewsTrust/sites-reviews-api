@@ -1,0 +1,52 @@
+name: ✨ Feature request
+description: Suggest a new endpoint, field, doc, or example for the developer platform.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! Concrete use cases help us prioritize. Note that the API server
+        lives elsewhere — this repo holds the contract, docs and examples — so API-shape
+        requests are treated as proposals.
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type of request
+      options:
+        - New API capability (endpoint / field / parameter)
+        - Documentation improvement
+        - New or improved example
+        - Widget enhancement
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the use case, not just the solution.
+      placeholder: I'm building ... and I need ... because ...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like to see? Sketch the request/response if it's an API idea.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you've tried (e.g. JSON-LD, the MCP server, client-side filtering).
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched existing issues and this isn't a duplicate.
+          required: true

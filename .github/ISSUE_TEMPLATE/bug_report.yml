@@ -1,0 +1,80 @@
+name: 🐛 Bug report
+description: Report an API response, doc, or example that doesn't match what's documented.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! This repo documents the **live** public API
+        (`https://sites.reviews/api/public/v1`). Please include the exact request and response
+        so we can reproduce. For security issues, **do not** file here — use the
+        [Security tab](https://github.com/SitesReviewsTrust/sites-reviews-api/security) instead.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Where is the problem?
+      options:
+        - API response (live endpoint behaves unexpectedly)
+        - OpenAPI spec (openapi.yaml)
+        - Documentation (docs/ or README)
+        - Example script (examples/)
+        - Widget
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: endpoint
+    attributes:
+      label: Endpoint
+      description: Which endpoint does this involve (if any)?
+      options:
+        - "GET /check"
+        - "GET /business/{domain}"
+        - "GET /reviews/{domain}"
+        - "GET /search"
+        - "Not endpoint-specific / N/A"
+    validations:
+      required: false
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+      placeholder: I called ... and expected ... but got ...
+    validations:
+      required: true
+  - type: textarea
+    id: request
+    attributes:
+      label: Request to reproduce
+      description: The exact request you ran (curl is ideal). This will be rendered as shell.
+      render: bash
+      placeholder: curl -s "https://sites.reviews/api/public/v1/check?domain=1ps.ru"
+    validations:
+      required: false
+  - type: textarea
+    id: response
+    attributes:
+      label: Actual response
+      description: The response body (and status code / relevant headers if useful).
+      render: json
+    validations:
+      required: false
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected response
+      description: What you expected to receive.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched existing issues and this isn't a duplicate.
+          required: true
+        - label: This is not a security vulnerability (those go through the Security tab).
+          required: true

@@ -2,11 +2,13 @@
 // read-business.mjs — read a business's rating & reviews from Sites.Reviews
 //
 // HOW IT WORKS
-//   There is no public JSON REST API on sites.reviews yet (see ../docs/roadmap.md).
-//   The supported way to read data TODAY is the schema.org JSON-LD that every
-//   business page embeds at https://sites.reviews/businesses/{domain}.
-//   This script fetches that page, finds the Organization block that carries an
+//   This demonstrates the schema.org JSON-LD alternative to the JSON API. Every
+//   business page at https://sites.reviews/businesses/{domain} embeds JSON-LD; this
+//   script fetches that page, finds the Organization block that carries an
 //   aggregateRating, and prints the rating, review count and recent reviews.
+//
+//   For most integrations the live JSON API is simpler — see ../docs/api-reference.md
+//   and the check.sh / check.mjs / check.py examples in this folder.
 //
 // USAGE
 //   node examples/read-business.mjs <domain>

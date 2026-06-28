@@ -1,0 +1,761 @@
+openapi: 3.1.0
+
+info:
+  title: Sites.Reviews Public API
+  version: 1.0.0
+  summary: Read-only access to Sites.Reviews trust scores, business profiles and reviews.
+  description: |
+    The **Sites.Reviews Public API** is a free, read-only, **no-authentication** JSON API for
+    looking up the trust score, profile and reviews of any business indexed on
+    [sites.reviews](https://sites.reviews).
+
+    Use it to:
+
+    - Check whether a domain is in the Sites.Reviews catalog and read its **trust score** (`GET /check`).
+    - Fetch a full business profile, including AI summary and category (`GET /business/{domain}`).
+    - Page through a business's reviews (`GET /reviews/{domain}`).
+    - Search the catalog by name or domain (`GET /search`).
+
+    ### Conventions
+
+    - **Base URL:** `https://sites.reviews/api/public/v1`
+    - **Authentication:** none. All endpoints are public and read-only.
+    - **HTTP methods:** `GET` (and `OPTIONS` for CORS preflight) only.
+    - **`{domain}`** is the business website host, **lowercased** (e.g. `1ps.ru`). Do not
+      include a scheme (`https://`), path or trailing slash.
+    - **`trust_score`** is `avg_ratings * 2`, i.e. the 0–5 average rating rescaled to **0–10**.
+    - **Encoding:** all responses are UTF-8 JSON. Text fields may be in any language (Russian
+      is common); review objects also carry an English translation in `body_en`.
+
+    ### Rate limiting
+
+    Requests are limited to **60 requests per minute per IP address**. Every response includes:
+
+    | Header | Meaning |
+    | --- | --- |
+    | `X-RateLimit-Limit` | The per-minute quota (`60`). |
+    | `X-RateLimit-Remaining` | Requests left in the current window. |
+
+    Exceeding the limit returns **HTTP 429 Too Many Requests**. Cache responses where you can —
+    successful `200` responses are sent with `Cache-Control: public, max-age=300` (5 minutes).
+
+    ### CORS
+
+    All endpoints send `Access-Control-Allow-Origin: *` and may be called directly from the
+    browser. Allowed methods are `GET, OPTIONS`.
+
+    ### Caching
+
+    Successful `200` responses include `Cache-Control: public, max-age=300, s-maxage=300`,
+    so both browsers and shared caches/CDNs may cache them for up to 5 minutes.
+  contact:
+    name: Sites.Reviews
+    url: https://sites.reviews
+  license:
+    name: MIT
+    url: https://github.com/SitesReviewsTrust/sites-reviews-api/blob/main/LICENSE
+  termsOfService: https://sites.reviews
+
+servers:
+  - url: https://sites.reviews/api/public/v1
+    description: Production (live)
+
+# The API is public and read-only — no authentication is required or accepted.
+security: []
+
+tags:
+  - name: Lookup
+    description: Quick trust-score lookups and full business profiles.
+  - name: Reviews
+    description: Paginated access to a business's reviews.
+  - name: Search
+    description: Search the Sites.Reviews catalog.
+
+paths:
+  /check:
+    get:
+      operationId: checkDomain
+      tags: [Lookup]
+      summary: Trust-score lookup for a domain
+      description: |
+        Returns the trust score and summary fields for a domain if it is in the Sites.Reviews
+        catalog. Unlike the other endpoints, a domain that is **not** in the catalog still
+        returns **HTTP 200** with a `{ "found": false, ... }` payload (not a 404), so a single
+        request tells you both whether the business exists and its score.
+      parameters:
+        - $ref: '#/components/parameters/DomainQuery'
+      responses:
+        '200':
+          description: |
+            The domain was resolved. The body is **either** a `BusinessShort` object (business
+            found) **or** a `NotInCatalog` object (`found: false`).
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            Access-Control-Allow-Origin:
+              $ref: '#/components/headers/CorsAllowOrigin'
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/BusinessShort'
+                  - $ref: '#/components/schemas/NotInCatalog'
+              examples:
+                found:
+                  summary: Domain found in catalog
+                  value:
+                    id: 1841
+                    name: Продвижение сайтов от 1PS.RU
+                    slug: 1ps.ru
+                    website: https://1ps.ru
+                    trust_score: 9.6
+                    avg_ratings: 4.8
+                    total_reviews: 34
+                    is_verified: false
+                    url: https://sites.reviews/businesses/1ps.ru
+                    logo: null
+                notFound:
+                  summary: Domain not in catalog
+                  value:
+                    found: false
+                    domain: example-not-indexed.com
+                    submit_url: https://sites.reviews/businesses/add?website=example-not-indexed.com
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /business/{domain}:
+    get:
+      operationId: getBusiness
+      tags: [Lookup]
+      summary: Full business profile
+      description: |
+        Returns the complete profile for a business: every `BusinessShort` field plus
+        descriptions, the AI-generated `ai_about` / `ai_summary`, social links, address,
+        category, tags and creation timestamp.
+
+        Unknown or not-yet-indexed domains return **HTTP 404** with `{ "error": "not_found" }`.
+      parameters:
+        - $ref: '#/components/parameters/DomainPath'
+      responses:
+        '200':
+          description: Full business profile.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            Access-Control-Allow-Origin:
+              $ref: '#/components/headers/CorsAllowOrigin'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessFull'
+              examples:
+                business:
+                  $ref: '#/components/examples/BusinessFullExample'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /reviews/{domain}:
+    get:
+      operationId: listReviews
+      tags: [Reviews]
+      summary: List a business's reviews (paginated)
+      description: |
+        Returns a paginated list of reviews for a business, plus a `BusinessShort` summary of
+        the business itself. Reviews carry both the original text (`body`) and an English
+        translation (`body_en`), a `stars` rating (1–5) and optional `pros` / `cons` highlights.
+
+        Unknown or not-yet-indexed domains return **HTTP 404** with `{ "error": "not_found" }`.
+      parameters:
+        - $ref: '#/components/parameters/DomainPath'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200':
+          description: Paginated reviews.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            Access-Control-Allow-Origin:
+              $ref: '#/components/headers/CorsAllowOrigin'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewsResponse'
+              examples:
+                reviews:
+                  $ref: '#/components/examples/ReviewsResponseExample'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /search:
+    get:
+      operationId: searchBusinesses
+      tags: [Search]
+      summary: Search the catalog
+      description: |
+        Full-text search over the Sites.Reviews catalog by business name or domain. Returns a
+        list of `BusinessShort` results.
+
+        The query `q` must be **at least 3 characters**; shorter queries return **HTTP 422**
+        with `{ "error": "query_too_short" }`.
+      parameters:
+        - $ref: '#/components/parameters/SearchQuery'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Search results (possibly empty).
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            Access-Control-Allow-Origin:
+              $ref: '#/components/headers/CorsAllowOrigin'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+              examples:
+                results:
+                  $ref: '#/components/examples/SearchResponseExample'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+components:
+
+  parameters:
+    DomainQuery:
+      name: domain
+      in: query
+      required: true
+      description: Business website host, lowercased and without scheme (e.g. `1ps.ru`).
+      schema:
+        type: string
+        examples: [1ps.ru]
+    DomainPath:
+      name: domain
+      in: path
+      required: true
+      description: Business website host, lowercased and without scheme (e.g. `1ps.ru`).
+      schema:
+        type: string
+        examples: [1ps.ru]
+    Page:
+      name: page
+      in: query
+      required: false
+      description: 1-based page number.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PerPage:
+      name: per_page
+      in: query
+      required: false
+      description: Reviews per page. Maximum 50.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 20
+    SearchQuery:
+      name: q
+      in: query
+      required: true
+      description: Search term (business name or domain). Minimum 3 characters.
+      schema:
+        type: string
+        minLength: 3
+        examples: [ozon]
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of results to return. Maximum 50.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 10
+
+  headers:
+    CacheControl:
+      description: Caching policy for successful responses.
+      schema:
+        type: string
+        examples: ['public, max-age=300, s-maxage=300']
+    RateLimitLimit:
+      description: Per-minute request quota for the caller's IP.
+      schema:
+        type: integer
+        examples: [60]
+    RateLimitRemaining:
+      description: Requests remaining in the current rate-limit window.
+      schema:
+        type: integer
+        examples: [59]
+    CorsAllowOrigin:
+      description: CORS policy. Always `*`.
+      schema:
+        type: string
+        examples: ['*']
+
+  responses:
+    NotFound:
+      description: The domain is unknown or not yet indexed.
+      headers:
+        Access-Control-Allow-Origin:
+          $ref: '#/components/headers/CorsAllowOrigin'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/NotFound'
+          example:
+            error: not_found
+    ValidationError:
+      description: A request parameter failed validation.
+      headers:
+        Access-Control-Allow-Origin:
+          $ref: '#/components/headers/CorsAllowOrigin'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+          examples:
+            queryTooShort:
+              summary: Search query shorter than 3 characters
+              value:
+                error: query_too_short
+    RateLimited:
+      description: Too many requests — the per-IP rate limit (60/min) was exceeded.
+      headers:
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        Access-Control-Allow-Origin:
+          $ref: '#/components/headers/CorsAllowOrigin'
+
+  schemas:
+
+    BusinessShort:
+      type: object
+      title: BusinessShort
+      description: Compact business summary, returned by `/check`, `/search` and embedded in other responses.
+      required:
+        - id
+        - name
+        - slug
+        - website
+        - trust_score
+        - avg_ratings
+        - total_reviews
+        - is_verified
+        - url
+        - logo
+      properties:
+        id:
+          type: integer
+          description: Internal business identifier.
+          examples: [1841]
+        name:
+          type: string
+          description: Business display name.
+          examples: [Продвижение сайтов от 1PS.RU]
+        slug:
+          type: string
+          description: URL slug — usually equal to the domain.
+          examples: [1ps.ru]
+        website:
+          type: string
+          format: uri
+          description: The business's own website.
+          examples: [https://1ps.ru]
+        trust_score:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 10
+          description: Trust score on a 0–10 scale (`avg_ratings * 2`).
+          examples: [9.6]
+        avg_ratings:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 5
+          description: Average rating on a 0–5 scale.
+          examples: [4.8]
+        total_reviews:
+          type: integer
+          minimum: 0
+          description: Total number of reviews on record.
+          examples: [34]
+        is_verified:
+          type: boolean
+          description: Whether the business is verified on Sites.Reviews.
+          examples: [false]
+        url:
+          type: string
+          format: uri
+          description: Canonical Sites.Reviews page for the business.
+          examples: [https://sites.reviews/businesses/1ps.ru]
+        logo:
+          type: [string, 'null']
+          description: Absolute logo URL, or `null` if none.
+          examples: [null]
+
+    BusinessFull:
+      title: BusinessFull
+      description: Full business profile, returned by `/business/{domain}`. Extends `BusinessShort`.
+      allOf:
+        - $ref: '#/components/schemas/BusinessShort'
+        - type: object
+          required:
+            - short_description
+            - description
+            - ai_about
+            - ai_summary
+            - social_links
+            - address
+            - category_id
+            - sub_category_id
+            - tags
+            - created_at
+          properties:
+            short_description:
+              type: [string, 'null']
+              description: Short tagline / summary.
+              examples: [Продвижение сайтов от 1PS.RU]
+            description:
+              type: [string, 'null']
+              description: Long-form description, or `null`.
+            ai_about:
+              type: [string, 'null']
+              description: AI-generated description of the business.
+            ai_summary:
+              oneOf:
+                - $ref: '#/components/schemas/AiSummary'
+                - type: 'null'
+              description: AI-generated verdict with pros and cons, or `null`.
+            social_links:
+              type: [object, 'null']
+              additionalProperties:
+                type: string
+              description: Map of social network → URL, or `null`.
+            address:
+              $ref: '#/components/schemas/Address'
+            category_id:
+              type: [integer, 'null']
+              description: Primary category identifier.
+              examples: [15]
+            sub_category_id:
+              type: [integer, 'null']
+              description: Sub-category identifier, or `null`.
+            tags:
+              type: [array, 'null']
+              items:
+                type: string
+              description: Free-form tags, or `null`.
+            created_at:
+              type: string
+              format: date-time
+              description: ISO 8601 timestamp of when the business was added.
+              examples: ['2026-05-18T05:20:42+03:00']
+
+    AiSummary:
+      type: object
+      title: AiSummary
+      description: AI-generated summary of the review corpus.
+      properties:
+        verdict:
+          type: string
+          description: One-to-two sentence overall verdict.
+        pros:
+          type: array
+          items:
+            type: string
+          description: Recurring positives mentioned across reviews.
+        cons:
+          type: array
+          items:
+            type: string
+          description: Recurring negatives mentioned across reviews.
+
+    Address:
+      title: Address
+      description: |
+        Business address. An object whose keys depend on the data on file. When no address is
+        known the API returns an empty JSON array (`[]`) rather than `{}` — treat both as "no
+        address".
+      oneOf:
+        - type: object
+          additionalProperties: true
+        - type: array
+          maxItems: 0
+
+    Review:
+      type: object
+      title: Review
+      required:
+        - id
+        - title
+        - body
+        - body_en
+        - stars
+        - pros
+        - cons
+        - author
+        - created_at
+      properties:
+        id:
+          type: integer
+          description: Review identifier.
+          examples: [23000]
+        title:
+          type: [string, 'null']
+          description: Review headline.
+        body:
+          type: string
+          description: Review text in its original language.
+        body_en:
+          type: [string, 'null']
+          description: English translation of the review body, or `null`.
+        stars:
+          type: integer
+          minimum: 1
+          maximum: 5
+          description: Rating from 1 to 5 stars.
+          examples: [5]
+        pros:
+          type: [array, 'null']
+          items:
+            type: string
+          description: Positive highlights, or `null`.
+        cons:
+          type: [array, 'null']
+          items:
+            type: string
+          description: Negative highlights, or `null`.
+        author:
+          type: [string, 'null']
+          description: Reviewer display name, or `null` if anonymous.
+        created_at:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp of the review.
+          examples: ['2026-05-31T23:41:07+03:00']
+
+    ReviewsResponse:
+      type: object
+      title: ReviewsResponse
+      required:
+        - business
+        - page
+        - per_page
+        - total
+        - reviews
+      properties:
+        business:
+          $ref: '#/components/schemas/BusinessShort'
+        page:
+          type: integer
+          minimum: 1
+          description: Current page number.
+          examples: [1]
+        per_page:
+          type: integer
+          minimum: 1
+          maximum: 50
+          description: Page size in effect.
+          examples: [20]
+        total:
+          type: integer
+          minimum: 0
+          description: Total number of reviews available.
+          examples: [34]
+        reviews:
+          type: array
+          items:
+            $ref: '#/components/schemas/Review'
+
+    SearchResponse:
+      type: object
+      title: SearchResponse
+      required:
+        - count
+        - results
+      properties:
+        count:
+          type: integer
+          minimum: 0
+          description: Number of results returned.
+          examples: [2]
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BusinessShort'
+
+    NotInCatalog:
+      type: object
+      title: NotInCatalog
+      description: Returned by `/check` (with HTTP 200) when the domain is not in the catalog.
+      required:
+        - found
+        - domain
+        - submit_url
+      properties:
+        found:
+          type: boolean
+          const: false
+          examples: [false]
+        domain:
+          type: string
+          description: The domain that was looked up.
+          examples: [example-not-indexed.com]
+        submit_url:
+          type: string
+          format: uri
+          description: URL to submit the business to Sites.Reviews.
+          examples: [https://sites.reviews/businesses/add?website=example-not-indexed.com]
+
+    NotFound:
+      type: object
+      title: NotFound
+      description: Standard 404 body for unknown / not-indexed domains.
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          const: not_found
+          examples: [not_found]
+
+    ValidationError:
+      type: object
+      title: ValidationError
+      description: Standard 422 body for invalid request parameters.
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Machine-readable validation error code.
+          examples: [query_too_short]
+
+  examples:
+    BusinessFullExample:
+      summary: Full profile for 1ps.ru
+      value:
+        id: 1841
+        name: Продвижение сайтов от 1PS.RU
+        slug: 1ps.ru
+        website: https://1ps.ru
+        trust_score: 9.6
+        avg_ratings: 4.8
+        total_reviews: 34
+        is_verified: false
+        url: https://sites.reviews/businesses/1ps.ru
+        logo: null
+        short_description: Продвижение сайтов от 1PS.RU
+        description: null
+        ai_about: >-
+          Компания «Продвижение сайтов от 1PS.RU» предлагает услуги по SEO-оптимизации и
+          продвижению сайтов в поисковых системах.
+        ai_summary:
+          verdict: >-
+            Компания 1PS вызывает в целом положительные отзывы, однако есть и негативные
+            мнения о качестве услуг.
+          pros:
+            - Качественное выполнение работ
+            - Профессиональная команда
+            - Широкий спектр услуг
+          cons:
+            - Высокая стоимость услуг для малого бизнеса
+        social_links: null
+        address: []
+        category_id: 15
+        sub_category_id: null
+        tags: null
+        created_at: '2026-05-18T05:20:42+03:00'
+
+    ReviewsResponseExample:
+      summary: First page of reviews for 1ps.ru
+      value:
+        business:
+          id: 1841
+          name: Продвижение сайтов от 1PS.RU
+          slug: 1ps.ru
+          website: https://1ps.ru
+          trust_score: 9.6
+          avg_ratings: 4.8
+          total_reviews: 34
+          is_verified: false
+          url: https://sites.reviews/businesses/1ps.ru
+          logo: null
+        page: 1
+        per_page: 20
+        total: 34
+        reviews:
+          - id: 23000
+            title: Продвижение сайтов для малого бизнеса с комплексными инструментами
+            body: 1PS.ru — удобный сервис для продвижения сайтов. Использую для SEO-оптимизации и контекстной рекламы.
+            body_en: 1PS.ru is a convenient service for website promotion. I use it for SEO optimization and contextual advertising.
+            stars: 5
+            pros:
+              - удобный сервис
+              - комплексные инструменты
+              - чёткие отчёты
+            cons: []
+            author: null
+            created_at: '2026-05-31T23:41:07+03:00'
+
+    SearchResponseExample:
+      summary: Search results for "ozon"
+      value:
+        count: 2
+        results:
+          - id: 1101
+            name: OZON — интернет-магазин. Миллионы товаров по выгодным ценам
+            slug: ozon.ru
+            website: https://ozon.ru
+            trust_score: 10
+            avg_ratings: 5
+            total_reviews: 4
+            is_verified: false
+            url: https://sites.reviews/businesses/ozon.ru
+            logo: null
+          - id: 6696
+            name: Интернет-магазин велозапчастей и велоаксессуаров — SportResort.ru
+            slug: sportozon.ru
+            website: https://sportozon.ru
+            trust_score: 10
+            avg_ratings: 5
+            total_reviews: 1
+            is_verified: false
+            url: https://sites.reviews/businesses/sportozon.ru
+            logo: null

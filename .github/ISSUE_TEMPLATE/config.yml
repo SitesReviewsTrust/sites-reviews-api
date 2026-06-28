@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Report a security vulnerability
+    url: https://github.com/SitesReviewsTrust/sites-reviews-api/security/advisories/new
+    about: Please report security issues privately, not as public issues.
+  - name: 🧠 MCP server (use the API from an AI assistant)
+    url: https://github.com/SitesReviewsTrust/sites-reviews-mcp
+    about: Ready-made Model Context Protocol tools wrapping this API.
+  - name: 🌐 Sites.Reviews website
+    url: https://sites.reviews
+    about: Search any domain's trust score and reviews.
